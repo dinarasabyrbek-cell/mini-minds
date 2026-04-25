@@ -3,10 +3,13 @@ export async function POST(request) {
     const { prompt, bookId, pageIndex, zone = 'elephant', kind } = await request.json()
     if (!prompt) return Response.json({ error: 'Missing prompt' }, { status: 400 })
 
-    // KIE task-based image generation (GPT Image 2).
-    // Create task → poll recordInfo → return the first result URL.
-    const apiKey = process.env.KIE_API_KEY
-    if (!apiKey) return Response.json({ error: 'Missing KIE_API_KEY' }, { status: 500 })
+    // Gemini image generation via OpenRouter chat/completions.
+    const openrouterKey = process.env.OPENROUTER_API_KEY
+    if (!openrouterKey) return Response.json({ error: 'Missing OPENROUTER_API_KEY' }, { status: 500 })
+    // Use a known-available Gemini image model on OpenRouter.
+    // Models page: https://openrouter.ai/google
+    // Gemini 3.1 Flash Image Preview is sometimes flaky; use 2.5 Flash Image by default.
+    const imageModel = process.env.OPENROUTER_IMAGE_MODEL || 'google/gemini-2.5-flash-image'
 
     // Shared Supabase cache: if present, return immediately.
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -35,105 +38,62 @@ export async function POST(request) {
       }
     }
 
-    const createRes = await fetch('https://api.kie.ai/api/v1/jobs/createTask', {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${openrouterKey}`,
         'Content-Type': 'application/json',
+        'HTTP-Referer': 'http://localhost',
+        'X-Title': 'mini-minds',
       },
       body: JSON.stringify({
-        model: 'gpt-image-2-text-to-image',
-        input: {
-          prompt,
+        model: imageModel,
+        messages: [{ role: 'user', content: prompt }],
+        modalities: ['image', 'text'],
+        image_config: {
           aspect_ratio: '1:1',
-          resolution: '1K',
+          image_size: '1K',
         },
+        stream: false,
       }),
     })
 
-    const createJson = await createRes.json().catch(() => null)
-    const taskId = createJson?.data?.taskId
-    if (!createRes.ok || !taskId) {
-      const details = createJson ? JSON.stringify(createJson) : await createRes.text().catch(() => '')
-      console.error('KIE createTask error:', createRes.status, details)
-      // Make it obvious in dev when credits are out so the UI can show a stable fallback.
-      if (createJson?.code === 402) {
-        return Response.json(
-          {
-            error: 'Credits insufficient',
-            ...(process.env.NODE_ENV !== 'production' ? { details } : {}),
-          },
-          { status: 402 }
-        )
-      }
+    if (!response.ok) {
+      const err = await response.text()
+      console.error('OpenRouter image error:', response.status, err)
       return Response.json(
         {
           error: 'Image generation failed',
-          ...(process.env.NODE_ENV !== 'production' ? { status: createRes.status, details } : {}),
+          ...(process.env.NODE_ENV !== 'production' ? { status: response.status, details: err } : {}),
         },
-        { status: createRes.status || 500 }
+        { status: response.status }
       )
     }
 
-    const startedAt = Date.now()
-    // KIE tasks can take a while depending on queue/credits.
-    const timeoutMs = 240_000
-    let attempt = 0
+    const data = await response.json()
+    const imageUrl = data?.choices?.[0]?.message?.images?.[0]?.image_url?.url
+    if (!imageUrl) return Response.json({ error: 'No image returned' }, { status: 500 })
 
-    while (Date.now() - startedAt < timeoutMs) {
-      attempt++
-      const waitMs = Math.min(2000 + attempt * 900, 12000)
-      await new Promise(r => setTimeout(r, waitMs))
-
-      const infoRes = await fetch(`https://api.kie.ai/api/v1/jobs/recordInfo?taskId=${encodeURIComponent(taskId)}`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-      })
-      const infoJson = await infoRes.json().catch(() => null)
-      const state = infoJson?.data?.state
-
-      if (!infoRes.ok) continue
-      if (state === 'fail') {
-        const failMsg = infoJson?.data?.failMsg || 'Task failed'
-        return Response.json(
-          {
-            error: 'Image generation failed',
-            ...(process.env.NODE_ENV !== 'production' ? { details: failMsg } : {}),
-          },
-          { status: 500 }
-        )
-      }
-
-      if (state === 'success') {
-        const resultJsonStr = infoJson?.data?.resultJson
-        let result
-        try { result = resultJsonStr ? JSON.parse(resultJsonStr) : null } catch { result = null }
-        const imageUrl = result?.resultUrls?.[0] || null
-        if (!imageUrl) return Response.json({ error: 'No image returned' }, { status: 500 })
-
-        // Best-effort: persist into shared Supabase cache.
-        if (supabaseUrl && supabaseAnon && bookId && Number.isInteger(pageIndex)) {
-          try {
-            const { createClient } = await import('@supabase/supabase-js')
-            const sb = createClient(supabaseUrl, supabaseAnon)
-            const k = kind || (pageIndex === 0 ? 'cover' : 'page')
-            await sb.from('image_cache').upsert({
-              zone,
-              book_id: String(bookId),
-              page_index: pageIndex,
-              kind: k,
-              image_url: imageUrl,
-              prompt,
-            }, { onConflict: 'zone,book_id,page_index,kind' })
-          } catch (e) {
-            console.error('Supabase cache write error:', e)
-          }
-        }
-
-        return Response.json({ imageUrl })
+    // Best-effort: persist into shared Supabase cache.
+    if (supabaseUrl && supabaseAnon && bookId && Number.isInteger(pageIndex)) {
+      try {
+        const { createClient } = await import('@supabase/supabase-js')
+        const sb = createClient(supabaseUrl, supabaseAnon)
+        const k = kind || (pageIndex === 0 ? 'cover' : 'page')
+        await sb.from('image_cache').upsert({
+          zone,
+          book_id: String(bookId),
+          page_index: pageIndex,
+          kind: k,
+          image_url: imageUrl,
+          prompt,
+        }, { onConflict: 'zone,book_id,page_index,kind' })
+      } catch (e) {
+        console.error('Supabase cache write error:', e)
       }
     }
 
-    return Response.json({ error: 'Image generation timed out' }, { status: 504 })
+    return Response.json({ imageUrl })
   } catch (err) {
     console.error('API /generate-image error:', err)
     return Response.json({ error: 'Internal error' }, { status: 500 })

@@ -2,14 +2,18 @@ export async function POST(request) {
   try {
     const { bookId, title, ageGroup, pageCount } = await request.json()
 
+    const model = process.env.OPENROUTER_TEXT_MODEL || 'google/gemini-2.5-flash'
+
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
+        'HTTP-Referer': 'http://localhost',
+        'X-Title': 'mini-minds',
       },
       body: JSON.stringify({
-        model: 'google/gemini-flash-1.5',
+        model,
         messages: [{
           role: 'user',
           content: `Write a simplified children's version of "${title}" for age group ${ageGroup}.
