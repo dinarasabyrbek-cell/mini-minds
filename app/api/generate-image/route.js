@@ -1,12 +1,39 @@
 export async function POST(request) {
   try {
-    const { prompt } = await request.json()
+    const { prompt, bookId, pageIndex, zone = 'elephant', kind } = await request.json()
     if (!prompt) return Response.json({ error: 'Missing prompt' }, { status: 400 })
 
     // KIE task-based image generation (GPT Image 2).
     // Create task → poll recordInfo → return the first result URL.
     const apiKey = process.env.KIE_API_KEY
     if (!apiKey) return Response.json({ error: 'Missing KIE_API_KEY' }, { status: 500 })
+
+    // Shared Supabase cache: if present, return immediately.
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    if (supabaseUrl && supabaseAnon && bookId && Number.isInteger(pageIndex)) {
+      try {
+        const { createClient } = await import('@supabase/supabase-js')
+        const sb = createClient(supabaseUrl, supabaseAnon)
+        const k = kind || (pageIndex === 0 ? 'cover' : 'page')
+
+        const { data: existing, error: readErr } = await sb
+          .from('image_cache')
+          .select('image_url')
+          .eq('zone', zone)
+          .eq('book_id', String(bookId))
+          .eq('page_index', pageIndex)
+          .eq('kind', k)
+          .maybeSingle()
+
+        if (!readErr && existing?.image_url) {
+          return Response.json({ imageUrl: existing.image_url, cached: true })
+        }
+      } catch (e) {
+        // If Supabase is misconfigured, fall back to generation.
+        console.error('Supabase cache read error:', e)
+      }
+    }
 
     const createRes = await fetch('https://api.kie.ai/api/v1/jobs/createTask', {
       method: 'POST',
@@ -72,6 +99,26 @@ export async function POST(request) {
         try { result = resultJsonStr ? JSON.parse(resultJsonStr) : null } catch { result = null }
         const imageUrl = result?.resultUrls?.[0] || null
         if (!imageUrl) return Response.json({ error: 'No image returned' }, { status: 500 })
+
+        // Best-effort: persist into shared Supabase cache.
+        if (supabaseUrl && supabaseAnon && bookId && Number.isInteger(pageIndex)) {
+          try {
+            const { createClient } = await import('@supabase/supabase-js')
+            const sb = createClient(supabaseUrl, supabaseAnon)
+            const k = kind || (pageIndex === 0 ? 'cover' : 'page')
+            await sb.from('image_cache').upsert({
+              zone,
+              book_id: String(bookId),
+              page_index: pageIndex,
+              kind: k,
+              image_url: imageUrl,
+              prompt,
+            }, { onConflict: 'zone,book_id,page_index,kind' })
+          } catch (e) {
+            console.error('Supabase cache write error:', e)
+          }
+        }
+
         return Response.json({ imageUrl })
       }
     }

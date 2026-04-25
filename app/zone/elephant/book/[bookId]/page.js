@@ -191,7 +191,7 @@ export default function BookReader() {
         const res = await fetch('/api/generate-image', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt }),
+          body: JSON.stringify({ prompt, bookId: book.id, pageIndex: i, zone: 'elephant', kind: i === 0 ? 'cover' : 'page' }),
         })
         const data = await res.json()
         if (!res.ok || !data.imageUrl) {

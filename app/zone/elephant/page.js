@@ -50,7 +50,7 @@ function useBookCovers(books) {
           const res = await fetch('/api/generate-image', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: b.coverPrompt }),
+            body: JSON.stringify({ prompt: b.coverPrompt, bookId: b.id, pageIndex: 0, zone: 'elephant', kind: 'cover' }),
           })
           const data = await res.json()
           if (!res.ok || !data.imageUrl) continue
