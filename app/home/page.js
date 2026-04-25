@@ -169,7 +169,7 @@ const CHARACTERS = [
   { id: 'rabbit',   href: '/zone/rabbit',  label: 'Learning', lottie: '/animations/rabbit.json',   emoji: '🐰' },
   { id: 'deer',     href: '/zone/cat',     label: 'Games',    lottie: '/animations/deer.json',     emoji: '🦌' },
   { id: 'elephant', href: '/zone/elephant', label: 'Stories',  lottie: '/animations/elephant.json', emoji: '🐘' },
-  { id: 'giraffe',  href: '/zone/minitv',  label: 'Mini TV',  lottie: '/animations/giraffe.json',  emoji: '🦒' },
+  { id: 'giraffe',  href: '/zone/giraffe', label: 'Mini TV',  lottie: '/animations/giraffe.json',  emoji: '🦒' },
 ]
 
 /* ──────────────────────────────────────────────────────────
