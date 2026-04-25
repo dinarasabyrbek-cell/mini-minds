@@ -6,12 +6,9 @@ export async function POST(request) {
     if (!text) return new Response('Missing text', { status: 400 })
 
     const kieKey = process.env.KIE_API_KEY
-    if (!kieKey) return Response.json({ error: 'Missing KIE_API_KEY' }, { status: 500 })
+    if (!kieKey) return new Response('Missing KIE_API_KEY', { status: 500 })
 
-    // KIE task-based ElevenLabs TTS
-    // Docs: https://docs.kie.ai/market/elevenlabs/text-to-speech-multilingual-v2
-    const model = process.env.KIE_TTS_MODEL || 'elevenlabs/text-to-speech-multilingual-v2'
-
+    /* ── 1. Create the TTS task ── */
     const createRes = await fetch('https://api.kie.ai/api/v1/jobs/createTask', {
       method: 'POST',
       headers: {
@@ -19,7 +16,7 @@ export async function POST(request) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model,
+        model: 'elevenlabs/text-to-speech-multilingual-v2',
         input: {
           text,
           voice: VOICE_ID,
@@ -33,80 +30,50 @@ export async function POST(request) {
 
     const createJson = await createRes.json().catch(() => null)
 
-    // KIE can return HTTP 200 with failure in body.
     if (!createRes.ok || createJson?.code !== 200) {
-      const msg = createJson?.msg || 'TTS createTask failed'
-      const details = createJson ? JSON.stringify(createJson) : await createRes.text().catch(() => '')
-      console.error('KIE TTS createTask error:', createRes.status, details)
-
-      // If KIE rejects the voice ID, surface a clear error so you can pick an allowed voice.
-      if (msg.toLowerCase().includes('voice') && msg.toLowerCase().includes('allowed')) {
-        return Response.json(
-          {
-            error: 'Voice not allowed by KIE ElevenLabs model',
-            voiceId: VOICE_ID,
-            hint: 'KIE only supports a limited set of voices for its ElevenLabs marketplace models. Choose an allowed voice or use direct ElevenLabs.',
-            ...(process.env.NODE_ENV !== 'production' ? { details } : {}),
-          },
-          { status: 400 }
-        )
-      }
-
-      return Response.json(
-        {
-          error: 'TTS failed',
-          ...(process.env.NODE_ENV !== 'production' ? { status: createRes.status, details } : {}),
-        },
-        { status: 500 }
-      )
+      const details = JSON.stringify(createJson)
+      console.error('KIE createTask error:', createRes.status, details)
+      return new Response('TTS failed', { status: 500 })
     }
 
     const taskId = createJson?.data?.taskId
-    if (!taskId) return Response.json({ error: 'Missing taskId' }, { status: 500 })
+    if (!taskId) return new Response('Missing taskId', { status: 500 })
 
-    const startedAt = Date.now()
-    const timeoutMs = 120_000
+    /* ── 2. Poll until done ── */
+    const deadline = Date.now() + 120_000
     let attempt = 0
 
-    while (Date.now() - startedAt < timeoutMs) {
+    while (Date.now() < deadline) {
       attempt++
-      const waitMs = Math.min(1500 + attempt * 650, 6000)
-      await new Promise(r => setTimeout(r, waitMs))
+      await new Promise(r => setTimeout(r, Math.min(1500 + attempt * 600, 6000)))
 
-      const infoRes = await fetch(`https://api.kie.ai/api/v1/jobs/recordInfo?taskId=${encodeURIComponent(taskId)}`, {
-        headers: { Authorization: `Bearer ${kieKey}` },
-      })
-      const infoJson = await infoRes.json().catch(() => null)
-      const state = infoJson?.data?.state
-
-      if (!infoRes.ok) continue
+      const infoRes = await fetch(
+        `https://api.kie.ai/api/v1/jobs/recordInfo?taskId=${encodeURIComponent(taskId)}`,
+        { headers: { Authorization: `Bearer ${kieKey}` } }
+      )
+      const info = await infoRes.json().catch(() => null)
+      const state = info?.data?.state
 
       if (state === 'fail') {
-        const failMsg = infoJson?.data?.failMsg || 'Task failed'
-        return Response.json(
-          {
-            error: 'TTS failed',
-            ...(process.env.NODE_ENV !== 'production' ? { details: failMsg } : {}),
-          },
-          { status: 500 }
-        )
+        console.error('KIE task failed:', info?.data?.failMsg)
+        return new Response('TTS task failed', { status: 500 })
       }
 
       if (state === 'success') {
-        const resultJsonStr = infoJson?.data?.resultJson
-        let result
-        try { result = resultJsonStr ? JSON.parse(resultJsonStr) : null } catch { result = null }
-        const audioUrl = result?.resultUrls?.[0] || null
-        if (!audioUrl) return Response.json({ error: 'No audio returned' }, { status: 500 })
+        let result = null
+        try { result = JSON.parse(info?.data?.resultJson) } catch {}
+        const audioUrl = result?.resultUrls?.[0]
+        if (!audioUrl) return new Response('No audio URL returned', { status: 500 })
 
         const audioRes = await fetch(audioUrl)
-        if (!audioRes.ok) return Response.json({ error: 'Failed to download audio' }, { status: 502 })
+        if (!audioRes.ok) return new Response('Failed to download audio', { status: 502 })
+
         const audio = await audioRes.arrayBuffer()
         return new Response(audio, { headers: { 'Content-Type': 'audio/mpeg' } })
       }
     }
 
-    return Response.json({ error: 'TTS timed out' }, { status: 504 })
+    return new Response('TTS timed out', { status: 504 })
   } catch (err) {
     console.error('API /speak error:', err)
     return new Response('Internal error', { status: 500 })
