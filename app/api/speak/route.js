@@ -1,4 +1,4 @@
-const VOICE_ID = process.env.ELEVENLABS_VOICE_ID || '2OEeJcYw2f3bWMzzjVMU'
+const VOICE_ID = '2OEeJcYw2f3bWMzzjVMU'
 
 export async function POST(request) {
   try {
