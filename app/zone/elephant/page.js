@@ -7,6 +7,7 @@ import dynamic from 'next/dynamic'
 import { motion } from 'framer-motion'
 import { AfricanSunsetBg } from '@/components/AfricanSunsetBg'
 import { BOOKS } from '@/lib/bookData'
+import { getCachedImage, setCachedImage } from '@/lib/imageCache'
 
 const Lottie = dynamic(() => import('lottie-react'), { ssr: false })
 
@@ -20,6 +21,52 @@ function useElephantAnim() {
       .then(r => r.json()).then(d => { _ec.set('e', d); setData(d) }).catch(() => {})
   }, [])
   return data
+}
+
+/* ── Covers: load cached, then generate once ── */
+function useBookCovers(books) {
+  const [covers, setCovers] = useState(() => ({})) // { [bookId]: url }
+
+  useEffect(() => {
+    let cancelled = false
+
+    // 1) Load from local cache synchronously on mount
+    try {
+      const next = {}
+      for (const b of books) {
+        const cached = getCachedImage(b.id, 0)
+        if (cached) next[b.id] = cached
+      }
+      setCovers(prev => ({ ...prev, ...next }))
+    } catch {}
+
+    // 2) Generate missing covers sequentially (polite to API)
+    ;(async () => {
+      for (const b of books) {
+        if (cancelled) return
+        if (getCachedImage(b.id, 0)) continue
+
+        try {
+          const res = await fetch('/api/generate-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: b.coverPrompt }),
+          })
+          const data = await res.json()
+          if (!res.ok || !data.imageUrl) continue
+
+          setCachedImage(b.id, 0, data.imageUrl)
+          if (!cancelled) setCovers(prev => ({ ...prev, [b.id]: data.imageUrl }))
+        } catch {
+          // keep placeholder
+        }
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [books])
+
+  return covers
 }
 
 /* ── Age badge ── */
@@ -48,6 +95,7 @@ function PersonalCard() {
           borderRadius: 24, overflow: 'hidden', cursor: 'pointer',
           boxShadow: '0 6px 24px rgba(0,0,0,0.18)',
           backgroundColor: '#FFFFFF',
+          border: '2px solid rgba(255,248,231,0.35)',
         }}
       >
         {/* Top — purple gradient */}
@@ -88,7 +136,7 @@ function PersonalCard() {
 }
 
 /* ── Book card ── */
-function BookCard({ book }) {
+function BookCard({ book, coverUrl }) {
   return (
     <Link href={`/zone/elephant/book/${book.id}`} style={{ textDecoration: 'none' }}>
       <motion.div
@@ -100,19 +148,28 @@ function BookCard({ book }) {
           backgroundColor: '#FFFFFF',
         }}
       >
-        {/* Cover placeholder */}
+        {/* Cover image / placeholder */}
         <div style={{
           height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: 'linear-gradient(135deg, #E8763A 0%, #F5C842 100%)',
+          background: coverUrl ? '#FFFFFF' : 'linear-gradient(135deg, #E8763A 0%, #F5C842 100%)',
           padding: 16, textAlign: 'center',
+          position: 'relative',
         }}>
-          <p style={{
-            color: '#FFFFFF', fontSize: 17, fontWeight: 700,
-            fontFamily: "'Fredoka', sans-serif",
-            textShadow: '0 1px 6px rgba(0,0,0,0.25)', lineHeight: 1.3,
-          }}>
-            {book.title}
-          </p>
+          {coverUrl ? (
+            <img
+              src={coverUrl}
+              alt=""
+              style={{ width: '100%', height: '100%', objectFit: 'cover', position: 'absolute', inset: 0 }}
+            />
+          ) : (
+            <p style={{
+              color: '#FFFFFF', fontSize: 17, fontWeight: 700,
+              fontFamily: "'Fredoka', sans-serif",
+              textShadow: '0 1px 6px rgba(0,0,0,0.25)', lineHeight: 1.3,
+            }}>
+              {book.title}
+            </p>
+          )}
         </div>
 
         {/* Bottom */}
@@ -138,8 +195,23 @@ export default function ElephantHub() {
   const router = useRouter()
   const [name, setName] = useState('Friend')
   const elephantAnim = useElephantAnim()
+  const covers = useBookCovers(BOOKS)
+  const [cols, setCols] = useState(1)
 
   useEffect(() => { setName(localStorage.getItem('miniMindsName') || 'Friend') }, [])
+
+  useEffect(() => {
+    function computeCols() {
+      const w = window.innerWidth
+      if (w >= 1024) return 3
+      if (w >= 768) return 2
+      return 1
+    }
+    const onResize = () => setCols(computeCols())
+    onResize()
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   return (
     <div style={{ minHeight: '100dvh', fontFamily: "'Fredoka', sans-serif" }}>
@@ -182,11 +254,11 @@ export default function ElephantHub() {
         {/* Book grid */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+          gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
           gap: 20,
         }}>
           <PersonalCard />
-          {BOOKS.map(book => <BookCard key={book.id} book={book} />)}
+          {BOOKS.map(book => <BookCard key={book.id} book={book} coverUrl={covers[book.id] || null} />)}
         </div>
       </div>
     </div>

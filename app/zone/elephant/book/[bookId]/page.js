@@ -325,24 +325,20 @@ export default function BookReader() {
           alignItems: 'center', justifyContent: 'center', gap: 16, padding: '72px 16px 24px' }}>
 
           {/* Image + nav row */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', maxWidth: 560 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', maxWidth: 640 }}>
             <NavArrow dir="left" onClick={() => setPageIdx(i => i - 1)} disabled={pageIdx === 0} />
 
             {/* Page image */}
             <div style={{
-              flex: 1, aspectRatio: '1', borderRadius: 16, overflow: 'hidden',
+              flex: 1, maxWidth: 480, width: '100%', aspectRatio: '1', borderRadius: 16, overflow: 'hidden',
               backgroundColor: '#E8763A', boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>
               {images[pageIdx]
                 ? <img src={images[pageIdx]} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                : <motion.div animate={{ opacity: [0.5, 1, 0.5] }}
+                : <motion.div animate={{ opacity: [0.65, 1, 0.65] }}
                     transition={{ repeat: Infinity, duration: 1.5 }}
-                    style={{ width: '100%', height: '100%', backgroundColor: '#E8763A',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 14,
-                      fontFamily: "'Fredoka', sans-serif" }}>Loading image...</p>
-                  </motion.div>
+                    style={{ width: '100%', height: '100%', backgroundColor: '#E8763A' }} />
               }
             </div>
 
@@ -350,12 +346,12 @@ export default function BookReader() {
             {pageIdx < pages.length - 1
               ? <NavArrow dir="right" onClick={() => setPageIdx(i => i + 1)} disabled={false} />
               : <button onClick={() => setPhase('done')} style={{
-                  width: 56, height: 56, borderRadius: 999, border: 'none',
-                  backgroundColor: '#E8763A', color: '#FFF8E7', fontWeight: 700, fontSize: 13,
+                  minWidth: 112, height: 56, padding: '0 18px', borderRadius: 999, border: 'none',
+                  backgroundColor: '#E8763A', color: '#FFF8E7', fontWeight: 700, fontSize: 15,
                   cursor: 'pointer', boxShadow: '0 3px 12px rgba(232,118,58,0.4)',
                   fontFamily: "'Fredoka', sans-serif", whiteSpace: 'nowrap',
                   flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>End</button>
+                }}>Finish</button>
             }
           </div>
 

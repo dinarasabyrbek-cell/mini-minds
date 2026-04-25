@@ -9,10 +9,10 @@ export function AfricanSunsetBg() {
         preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
 
         {/* Heat haze near horizon */}
-        <rect x="0" y="608" width="1440" height="60" fill="#F5C842" opacity="0.18" />
+        <rect x="0" y="608" width="1440" height="60" fill="#F5C842" opacity="0.2" />
 
         {/* Sun glow */}
-        <circle cx="720" cy="648" r="110" fill="#F5D442" opacity="0.22" />
+        <circle cx="720" cy="648" r="110" fill="#F5D442" opacity="0.3" />
         {/* Sun */}
         <circle cx="720" cy="648" r="80" fill="#F5D442" opacity="0.95" />
 
