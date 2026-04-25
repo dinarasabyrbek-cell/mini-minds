@@ -137,6 +137,9 @@ function PersonalCard() {
 
 /* ── Book card ── */
 function BookCard({ book, coverUrl }) {
+  const [staticFailed, setStaticFailed] = useState(false)
+  const staticSrc = `/elephant-covers/${book.id}.png`
+
   return (
     <Link href={`/zone/elephant/book/${book.id}`} style={{ textDecoration: 'none' }}>
       <motion.div
@@ -155,7 +158,14 @@ function BookCard({ book, coverUrl }) {
           padding: 16, textAlign: 'center',
           position: 'relative',
         }}>
-          {coverUrl ? (
+          {!staticFailed ? (
+            <img
+              src={staticSrc}
+              alt=""
+              onError={() => setStaticFailed(true)}
+              style={{ width: '100%', height: '100%', objectFit: 'cover', position: 'absolute', inset: 0 }}
+            />
+          ) : coverUrl ? (
             <img
               src={coverUrl}
               alt=""

@@ -56,6 +56,16 @@ export async function POST(request) {
     if (!createRes.ok || !taskId) {
       const details = createJson ? JSON.stringify(createJson) : await createRes.text().catch(() => '')
       console.error('KIE createTask error:', createRes.status, details)
+      // Make it obvious in dev when credits are out so the UI can show a stable fallback.
+      if (createJson?.code === 402) {
+        return Response.json(
+          {
+            error: 'Credits insufficient',
+            ...(process.env.NODE_ENV !== 'production' ? { details } : {}),
+          },
+          { status: 402 }
+        )
+      }
       return Response.json(
         {
           error: 'Image generation failed',
